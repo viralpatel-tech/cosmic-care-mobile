@@ -1,0 +1,241 @@
+import React, { useMemo } from 'react';
+import { View, Text, ScrollView, TouchableOpacity, StyleSheet, StatusBar, Linking, Alert } from 'react-native';
+import { useRouter } from 'expo-router';
+import { SafeAreaView } from 'react-native-safe-area-context';
+import { LinearGradient } from 'expo-linear-gradient';
+import { Activity, ArrowRight, BrainCircuit, ClipboardList, Clock3, Database, Radio, ShieldCheck, Users, Zap, ExternalLink, BookOpen, HeartPulse, Moon, DatabaseZap } from 'lucide-react-native';
+import { useMissionHealth } from '../context/MissionHealthContext';
+import { predictMissionHealth, getPredictionRiskColor, getPredictionRiskLabel } from '../services/predictiveHealthEngine';
+import { getSeverityColor, getSeverityLabel } from '../services/healthAlertEngine';
+
+const C = { bg: '#050B18', card: '#101D32', border: '#263A56', cyan: '#44E4F4', purple: '#A78BFA', green: '#4ADEA3', yellow: '#FBBF24', white: '#F4F8FF', muted: '#93A6C4' };
+const CREW = [
+    { id: 'CM-01', name: 'Alex Morgan', role: 'Commander' },
+    { id: 'CM-02', name: 'Maya Chen', role: 'Flight Engineer' },
+    { id: 'CM-03', name: 'Jordan Lee', role: 'Mission Specialist' },
+    { id: 'CM-04', name: 'Sam Rivera', role: 'Medical Officer' },
+];
+const IDS = CREW.map(item => item.id);
+
+const NASA_RESEARCH = [
+  {
+    title: 'Cardiovascular Adaptation',
+    topic: 'HEART & CIRCULATION',
+    description: 'NASA studies cardiovascular changes during spaceflight. This research informs why Cosmic Care highlights cardiovascular trends.',
+    source: 'NASA Human Research Program',
+    url: 'https://www.nasa.gov/hrp/risks/',
+    icon: 'heart',
+  },
+  {
+    title: 'Sleep & Circadian Rhythm',
+    topic: 'REST & PERFORMANCE',
+    description: 'NASA investigates sleep loss and circadian disruption during spaceflight. These findings inform the educational context of our simulated sleep monitoring.',
+    source: 'NASA Human Research Program',
+    url: 'https://www.nasa.gov/hrp/risks/',
+    icon: 'moon',
+  },
+  {
+    title: 'Open Space Biology Research',
+    topic: 'FUTURE DATA INTEGRATION',
+    description: 'NASA provides open space biology datasets through OSDR. Future versions could use relevant datasets for research. No OSDR dataset is currently processed by Cosmic Care.',
+    source: 'NASA Open Science Data Repository',
+    url: 'https://science.nasa.gov/biological-physical/data/osdr/',
+    icon: 'database',
+  },
+];
+
+async function openNASAResource(url: string) {
+  try {
+    const supported = await Linking.canOpenURL(url);
+    if (!supported) {
+      Alert.alert('Link unavailable', 'Unable to open this NASA resource.');
+      return;
+    }
+    await Linking.openURL(url);
+  } catch {
+    Alert.alert('Connection error', 'Please check your internet connection.');
+  }
+}
+
+
+function Stat({ label, value, color = C.white }: { label: string; value: string | number; color?: string }) {
+    return <View style={styles.stat}><Text style={[styles.statValue, { color }]}>{value}</Text><Text style={styles.statLabel}>{label}</Text></View>;
+}
+
+export default function MissionIntelligenceScreen() {
+    const router = useRouter();
+    const { history, historyLoaded, assessCrew, selectedId, setSelectedId, activeAlertCount, highestSeverity } = useMissionHealth();
+    const prediction = useMemo(() => predictMissionHealth(IDS, history, { horizonSteps: 5, sampleIntervalMinutes: 0.075, maxSamples: 30 }), [history]);
+    const crewRows = CREW.map(member => {
+        const assessment = assessCrew(member.id);
+        const forecast = prediction.crew.find(item => item.crewId === member.id);
+        const ready = (forecast?.sampleCount ?? 0) >= 3 && forecast?.predictedHealthScore !== null && forecast?.predictedHealthScore !== undefined;
+        const saved = history.filter(item => item.crewId === member.id).length;
+        return { ...member, assessment, forecast, ready, saved };
+    });
+    const analyzed = prediction.analyzedCrewCount;
+    const missionColor = analyzed ? getPredictionRiskColor(prediction.overallRisk) : C.muted;
+    const missionLabel = analyzed ? getPredictionRiskLabel(prediction.overallRisk) : 'Awaiting Data';
+    const navigate = (route: '/missionreadiness' | '/missionreport' | '/missionevents' | '/analysis' | '/missionoverview' | '/history' | '/alerts') => router.push(route);
+    return <SafeAreaView style={styles.root} edges={['top']}><StatusBar barStyle="light-content" /><ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
+        <View style={styles.brandRow}><Text style={styles.brand}>✦ COSMIC CARE</Text><View style={styles.simBadge}><Radio color={C.green} size={13} /><Text style={styles.simText}>SIMULATION</Text></View></View>
+        <LinearGradient colors={['#173B58', '#182447', '#101D32']} style={styles.hero}><View style={styles.heroIcon}><BrainCircuit color={C.cyan} size={30} /></View><Text style={styles.eyebrow}>MISSION CC-01 · INTELLIGENCE CENTER</Text><Text style={styles.heroTitle}>Mission Intelligence</Text><Text style={styles.description}>A unified view of fictional astronaut health, mission-wide trends, and simulated predictive assessments.</Text><View style={styles.heroStats}><Stat label="CREW" value="04" /><Stat label="SAVED SAMPLES" value={history.length} /><Stat label="ALERTS" value={activeAlertCount} color={activeAlertCount ? C.yellow : C.green} /></View></LinearGradient>
+        <Text style={styles.heading}>Mission Health Snapshot</Text><View style={styles.card}><View style={styles.split}><View><Text style={styles.overline}>PREDICTIVE MISSION RISK</Text><Text style={[styles.bigValue, { color: missionColor }]}>{missionLabel}</Text></View><ShieldCheck color={missionColor} size={28} /></View><View style={styles.divider} /><View style={styles.statRow}><Stat label="CREW ANALYZED" value={`${analyzed}/4`} color={C.cyan} /><Stat label="AVG. FORECAST SCORE" value={prediction.averagePredictedScore ?? '--'} color={C.purple} /><Stat label="FLAGGED CREW" value={prediction.flaggedCrewIds.length} color={C.yellow} /></View><Text style={styles.note}>{analyzed === 0 ? 'Forecasts require at least three stored telemetry samples per astronaut.' : prediction.summary}</Text></View>
+        <Text style={styles.heading}>Current Health Alerts</Text><TouchableOpacity style={styles.card} onPress={() => navigate('/alerts')} activeOpacity={0.8}><View style={styles.split}><View><Text style={styles.overline}>MISSION ALERT SEVERITY</Text><Text style={[styles.sectionValue, { color: getSeverityColor(highestSeverity) }]}>{getSeverityLabel(highestSeverity)}</Text><Text style={styles.note}>{activeAlertCount} active simulated metric alerts</Text></View><ArrowRight color={C.cyan} size={22} /></View></TouchableOpacity>
+        <View style={styles.headingRow}><Text style={styles.heading}>Astronaut Intelligence</Text><TouchableOpacity onPress={() => navigate('/missionoverview')}><Text style={styles.link}>View Mission</Text></TouchableOpacity></View>
+        {crewRows.map(member => <TouchableOpacity key={member.id} style={styles.crewCard} activeOpacity={0.85} onPress={() => { setSelectedId(member.id); navigate('/analysis'); }}><View style={styles.split}><View style={styles.personRow}><View style={styles.avatar}><Users color={C.cyan} size={18} /></View><View><Text style={styles.crewName}>{member.name}</Text><Text style={styles.crewRole}>{member.role} · {member.id}</Text></View></View><ArrowRight color={C.muted} size={19} /></View><View style={styles.crewMetrics}><View><Text style={styles.overline}>CURRENT SCORE</Text><Text style={styles.score}>{member.assessment.score}<Text style={styles.scoreUnit}>/100</Text></Text></View><View><Text style={styles.overline}>PROJECTED SCORE</Text><Text style={[styles.score, { color: C.purple }]}>{member.ready ? member.forecast?.predictedHealthScore : '--'}</Text></View><View><Text style={styles.overline}>FORECAST RISK</Text><Text style={[styles.risk, { color: member.ready && member.forecast ? getPredictionRiskColor(member.forecast.overallRisk) : C.muted }]}>{member.ready && member.forecast ? getPredictionRiskLabel(member.forecast.overallRisk) : 'Awaiting Data'}</Text></View></View><Text style={styles.samples}>{member.saved} stored telemetry samples</Text></TouchableOpacity>)}
+        <Text style={styles.heading}>Mission Control</Text>
+        {[
+            { label: 'Mission Readiness', detail: 'Simulated readiness and coverage checks', route: '/missionreadiness' as const, icon: <ShieldCheck color={C.green} size={22} /> },
+            { label: 'Mission Health Report', detail: 'Crew comparisons and forecast summaries', route: '/missionreport' as const, icon: <ClipboardList color={C.cyan} size={22} /> },
+            { label: 'Mission Event Log', detail: 'Review recent simulated events', route: '/missionevents' as const, icon: <Clock3 color={C.yellow} size={22} /> },
+            { label: 'Predictive Analytics', detail: 'Inspect detailed forecast calculations', route: '/analysis' as const, icon: <BrainCircuit color={C.purple} size={22} /> },
+            { label: 'Telemetry History', detail: 'Explore saved readings', route: '/history' as const, icon: <Database color={C.green} size={22} /> },
+        ].map(item => <TouchableOpacity key={item.route} style={styles.nav} onPress={() => navigate(item.route)}><View style={styles.navIcon}>{item.icon}</View><View style={styles.navText}><Text style={styles.navTitle}>{item.label}</Text><Text style={styles.navDetail}>{item.detail}</Text></View><ArrowRight color={C.muted} size={19} /></TouchableOpacity>)}
+
+        <View style={styles.nasaHeader}>
+          <View style={styles.nasaTitleRow}>
+            <BookOpen color={C.cyan} size={23} />
+            <Text style={styles.nasaTitle}>NASA Research Foundation</Text>
+          </View>
+          <Text style={styles.nasaIntro}>
+            Official NASA research informing Cosmic Care's educational astronaut health-risk themes.
+          </Text>
+        </View>
+
+        {NASA_RESEARCH.map(item => (
+          <TouchableOpacity
+            key={item.title}
+            style={styles.nasaCard}
+            activeOpacity={0.85}
+            accessibilityRole="link"
+            onPress={() => openNASAResource(item.url)}
+          >
+            <View style={styles.nasaTop}>
+              <View style={styles.nasaIcon}>
+                {item.icon === 'heart' ? (
+                  <HeartPulse color={C.green} size={23} />
+                ) : item.icon === 'moon' ? (
+                  <Moon color={C.purple} size={23} />
+                ) : (
+                  <DatabaseZap color={C.cyan} size={23} />
+                )}
+              </View>
+
+              <View style={styles.nasaTextArea}>
+                <Text style={styles.nasaTopic}>{item.topic}</Text>
+                <Text style={styles.nasaCardTitle}>{item.title}</Text>
+              </View>
+
+              <ExternalLink color={C.cyan} size={19} />
+            </View>
+
+            <Text style={styles.nasaDescription}>
+              {item.description}
+            </Text>
+
+            <Text style={styles.nasaSource}>
+              SOURCE: {item.source}
+            </Text>
+          </TouchableOpacity>
+        ))}
+
+        <View style={styles.nasaDisclaimer}>
+          <Text style={styles.nasaDisclaimerText}>
+            RESEARCH-INFORMED SIMULATION: NASA resources inform the
+            educational content, not the numerical prediction algorithm.
+            All astronaut profiles, measurements, forecasts, and alerts
+            are fictional. Cosmic Care is not NASA-endorsed or
+            clinically validated.
+          </Text>
+        </View>
+
+        <View style={styles.disclaimer}><Zap color={C.yellow} size={20} /><Text style={styles.disclaimerText}>{historyLoaded ? 'Telemetry storage loaded. ' : 'Loading saved telemetry. '}All data, alerts, forecasts, and readiness indicators are fictional educational simulations. They are not medically validated and must not be used for clinical or operational decisions.</Text></View><Text style={styles.footer}>COSMIC CARE · MISSION INTELLIGENCE · DEMO MODE</Text>
+    </ScrollView></SafeAreaView>;
+}
+
+const styles = StyleSheet.create({
+
+    nasaHeader: {
+      marginTop: 20,
+      marginBottom: 14,
+    },
+    nasaTitleRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 10,
+    },
+    nasaTitle: {
+      color: C.white,
+      fontSize: 18,
+      fontWeight: '900',
+    },
+    nasaIntro: {
+      color: C.muted,
+      fontSize: 11,
+      lineHeight: 19,
+      marginTop: 10,
+    },
+    nasaCard: {
+      backgroundColor: C.card,
+      borderWidth: 1,
+      borderColor: C.border,
+      borderRadius: 17,
+      padding: 16,
+      marginBottom: 12,
+    },
+    nasaTop: {
+      flexDirection: 'row',
+      alignItems: 'center',
+    },
+    nasaIcon: {
+      width: 44,
+      height: 44,
+      borderRadius: 13,
+      backgroundColor: '#1A3049',
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    nasaTextArea: {
+      flex: 1,
+      marginHorizontal: 12,
+    },
+    nasaTopic: {
+      color: C.cyan,
+      fontSize: 9,
+      fontWeight: '800',
+      letterSpacing: 0.6,
+    },
+    nasaCardTitle: {
+      color: C.white,
+      fontSize: 13,
+      fontWeight: '900',
+      marginTop: 6,
+    },
+    nasaDescription: {
+      color: '#B0C6D8',
+      fontSize: 11,
+      lineHeight: 19,
+      marginTop: 14,
+    },
+    nasaSource: {
+      color: C.green,
+      fontSize: 9,
+      fontWeight: '800',
+      marginTop: 13,
+    },
+    nasaDisclaimer: {
+      backgroundColor: '#142639',
+      borderWidth: 1,
+      borderColor: '#2A4561',
+      borderRadius: 14,
+      padding: 14,
+      marginTop: 5,
+    },
+    nasaDisclaimerText: {
+      color: '#C1D0E1',
+      fontSize: 10,
+      lineHeight: 18,
+    },
+    root: { flex: 1, backgroundColor: C.bg }, content: { paddingHorizontal: 19, paddingTop: 17, paddingBottom: 55 }, brandRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20 }, brand: { color: C.cyan, fontSize: 19, fontWeight: '900', letterSpacing: 1 }, simBadge: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 10, paddingVertical: 7, backgroundColor: '#173B38', borderRadius: 20 }, simText: { color: C.green, fontSize: 9, fontWeight: '900' }, hero: { padding: 20, borderRadius: 21, borderWidth: 1, borderColor: '#2D5674', marginBottom: 24 }, heroIcon: { width: 52, height: 52, borderRadius: 15, alignItems: 'center', justifyContent: 'center', backgroundColor: '#214B66', marginBottom: 17 }, eyebrow: { color: C.cyan, fontSize: 10, fontWeight: '800', letterSpacing: 1 }, heroTitle: { color: C.white, fontSize: 27, fontWeight: '900', marginTop: 8 }, description: { color: '#BDD1E3', fontSize: 12, lineHeight: 20, marginTop: 10 }, heroStats: { flexDirection: 'row', justifyContent: 'space-between', marginTop: 22, paddingTop: 18, borderTopWidth: 1, borderTopColor: '#35516B' }, stat: { alignItems: 'center', flex: 1 }, statValue: { fontSize: 21, fontWeight: '900' }, statLabel: { color: C.muted, fontSize: 9, marginTop: 7, textAlign: 'center' }, heading: { color: C.white, fontSize: 18, fontWeight: '900', marginBottom: 14, marginTop: 6 }, headingRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }, link: { color: C.cyan, fontSize: 12, fontWeight: '800' }, card: { backgroundColor: C.card, borderWidth: 1, borderColor: C.border, borderRadius: 16, padding: 17, marginBottom: 23 }, split: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }, overline: { color: C.muted, fontSize: 9, fontWeight: '800', letterSpacing: 0.4 }, bigValue: { fontSize: 24, fontWeight: '900', marginTop: 9 }, divider: { height: 1, backgroundColor: C.border, marginVertical: 18 }, statRow: { flexDirection: 'row', justifyContent: 'space-between' }, note: { color: C.muted, fontSize: 11, lineHeight: 18, marginTop: 14 }, sectionValue: { fontSize: 20, fontWeight: '900', marginTop: 9 }, crewCard: { backgroundColor: C.card, borderWidth: 1, borderColor: C.border, borderRadius: 16, padding: 15, marginBottom: 12 }, personRow: { flexDirection: 'row', alignItems: 'center', gap: 11 }, avatar: { width: 41, height: 41, backgroundColor: '#19485A', borderRadius: 12, alignItems: 'center', justifyContent: 'center' }, crewName: { color: C.white, fontSize: 13, fontWeight: '900' }, crewRole: { color: C.muted, fontSize: 10, marginTop: 5 }, crewMetrics: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-end', marginTop: 18, paddingTop: 16, borderTopWidth: 1, borderTopColor: C.border }, score: { color: C.white, fontSize: 23, fontWeight: '900', marginTop: 7 }, scoreUnit: { color: C.muted, fontSize: 11 }, risk: { fontSize: 12, fontWeight: '900', marginTop: 11 }, samples: { color: C.muted, fontSize: 10, marginTop: 13 }, nav: { flexDirection: 'row', alignItems: 'center', backgroundColor: C.card, borderColor: C.border, borderWidth: 1, borderRadius: 14, padding: 13, marginBottom: 10 }, navIcon: { width: 44, height: 44, borderRadius: 12, backgroundColor: '#1A3049', alignItems: 'center', justifyContent: 'center' }, navText: { flex: 1, marginLeft: 12 }, navTitle: { color: C.white, fontSize: 13, fontWeight: '900' }, navDetail: { color: C.muted, fontSize: 10, marginTop: 5 }, disclaimer: { flexDirection: 'row', gap: 11, backgroundColor: '#12283A', padding: 15, borderRadius: 14, marginTop: 19 }, disclaimerText: { flex: 1, color: '#B0C6D8', fontSize: 11, lineHeight: 18 }, footer: { textAlign: 'center', color: C.muted, fontSize: 9, marginTop: 26 }
+});
